@@ -10,6 +10,8 @@ ADD = 0b10100000
 SUB = 0b10100001
 MUL = 0b10100010
 DIV = 0b10100011
+PUSH = 0b01000101
+POP = 0b01000110
 
 
 class CPU:
@@ -19,11 +21,11 @@ class CPU:
         """Construct a new CPU."""
 
         # Initialize ram to hold 256 bytes of memory
-        byte = [0] * 8
-        self.ram = [byte] * 256
+        # byte = [0] * 8
+        self.ram = [0] * 256
 
         # Eight general purpose registers
-        self.reg = [byte] * 8
+        self.reg = [0] * 8
 
         ## Internal Registers
 
@@ -41,14 +43,19 @@ class CPU:
         # Memory Data Register - holds the value to write or the value just read
         self.mdr = None
 
-        # Flags Register - holds the current flags status
-        self.fl = None
+        # Set R7 to the bottom of the stack
+        self.reg[7] = 0xF3
+
+        # Point the stack pointer at the bottom of the stack
+        self.sp = self.reg[7]
 
         # Set up a branch table
         self.branchtable = {}
         self.branchtable[HLT] = self.handle_hlt
         self.branchtable[LDI] = self.handle_ldi
         self.branchtable[PRN] = self.handle_prn
+        self.branchtable[PUSH] = self.handle_push
+        self.branchtable[POP] = self.handle_pop
 
     def load(self):
         """Load a program into memory."""
@@ -151,12 +158,29 @@ class CPU:
 
     def handle_ldi(self):
         register = self.ram_read(self.pc + 1)
+        print("ldi register", register)
         value = self.ram_read(self.pc + 2)
         self.reg[register] = value
 
     def handle_prn(self):
         register = self.ram_read(self.pc + 1)
         print(self.reg[register])
+
+    def handle_push(self):
+        # print("before", self.reg, "sp", self.sp)
+        self.sp -= 1
+        # print("after", self.reg, "sp", self.sp)
+        register = self.ram_read(self.pc + 1)
+        value = self.reg[register]
+        # print("value", value, self.sp)
+        self.ram_write(self.sp, value)
+
+    def handle_pop(self):
+        value = self.ram_read(self.sp)
+        # print("value", value)
+        register = self.ram_read(self.pc + 1)
+        self.reg[register] = value
+        self.reg[7] += 1
 
     def run(self):
         """Run the CPU."""
@@ -165,23 +189,28 @@ class CPU:
         while running:
             # Get the current instruction
             instruction = self.ram_read(self.pc)
-
+            print("self.pc, instruction", self.pc, instruction)
             # Store a copy of the current instruction in IR register
             self.ir = instruction
+            print("self.ir", self.ir)
 
             # Get the number of operands
             num_operands = instruction >> 6
+            print("num_operands", num_operands, instruction)
 
             # Store the bytes at PC+1 and PC+2
             operand_a = self.ram_read(self.pc + 1)
             operand_b = self.ram_read(self.pc + 2)
+            print("operand_a, operand_b", operand_a, operand_b)
 
             # Check if it's an ALU instruction
             is_alu_operation = (instruction >> 5) & 0b1
-
+            # print(self.ram)
             if is_alu_operation:
                 self.alu(self.ir, operand_a, operand_b)
             else:
+                # self.trace()
+                print(self.branchtable[self.ir], "\n")
                 self.branchtable[self.ir]()
 
             # Point the PC to the next instruction in memory
