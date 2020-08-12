@@ -158,7 +158,7 @@ class CPU:
 
     def handle_ldi(self):
         register = self.ram_read(self.pc + 1)
-        print("ldi register", register)
+        # print("ldi register", register)
         value = self.ram_read(self.pc + 2)
         self.reg[register] = value
 
@@ -180,7 +180,7 @@ class CPU:
         # print("value", value)
         register = self.ram_read(self.pc + 1)
         self.reg[register] = value
-        self.reg[7] += 1
+        self.sp += 1
 
     def run(self):
         """Run the CPU."""
@@ -189,19 +189,19 @@ class CPU:
         while running:
             # Get the current instruction
             instruction = self.ram_read(self.pc)
-            print("self.pc, instruction", self.pc, instruction)
+            # print("self.pc, instruction", self.pc, instruction)
             # Store a copy of the current instruction in IR register
             self.ir = instruction
-            print("self.ir", self.ir)
+            # print("self.ir", self.ir)
 
             # Get the number of operands
             num_operands = instruction >> 6
-            print("num_operands", num_operands, instruction)
+            # print("num_operands", num_operands, instruction)
 
             # Store the bytes at PC+1 and PC+2
             operand_a = self.ram_read(self.pc + 1)
             operand_b = self.ram_read(self.pc + 2)
-            print("operand_a, operand_b", operand_a, operand_b)
+            # print("operand_a, operand_b", operand_a, operand_b)
 
             # Check if it's an ALU instruction
             is_alu_operation = (instruction >> 5) & 0b1
@@ -209,8 +209,8 @@ class CPU:
             if is_alu_operation:
                 self.alu(self.ir, operand_a, operand_b)
             else:
-                # self.trace()
-                print(self.branchtable[self.ir], "\n")
+                self.trace()
+                # print(self.branchtable[self.ir], "\n")
                 self.branchtable[self.ir]()
 
             # Point the PC to the next instruction in memory
