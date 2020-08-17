@@ -12,6 +12,8 @@ MUL = 0b10100010
 DIV = 0b10100011
 PUSH = 0b01000101
 POP = 0b01000110
+CALL = 0b01010000
+RET = 0b00010001
 
 
 class CPU:
@@ -21,11 +23,17 @@ class CPU:
         """Construct a new CPU."""
 
         # Initialize ram to hold 256 bytes of memory
-        # byte = [0] * 8
         self.ram = [0] * 256
 
         # Eight general purpose registers
         self.reg = [0] * 8
+
+        # self.reg[5] is reserved as the Interrupt Mark (IM)
+        # self.reg[6] is reserved as the Interrupt Status (IS)
+        # self.reg[7] is reserved as the Stack Pointer (SP)
+
+        # Initialize the SP to address 0xF4
+        self.reg[7] = 0xF4
 
         ## Internal Registers
 
@@ -43,11 +51,11 @@ class CPU:
         # Memory Data Register - holds the value to write or the value just read
         self.mdr = None
 
-        # Set R7 to the bottom of the stack
-        self.reg[7] = 0xF3
+        # Flags Register - holds the current flags status
+        self.fl = None
 
-        # Point the stack pointer at the bottom of the stack
-        self.sp = self.reg[7]
+        # Loop in cpu_run() will run while this is True
+        self.running = True
 
         # Set up a branch table
         self.branchtable = {}
@@ -56,10 +64,11 @@ class CPU:
         self.branchtable[PRN] = self.handle_prn
         self.branchtable[PUSH] = self.handle_push
         self.branchtable[POP] = self.handle_pop
+        self.branchtable[CALL] = self.handle_call
+        self.branchtable[RET] = self.handle_ret
 
     def load(self):
         """Load a program into memory."""
-
         # Print an error if user did not provide a program to load
         # and exit the program
         if len(sys.argv) < 2:
@@ -115,7 +124,10 @@ class CPU:
         """
         Should accept the address to read and return the value stored there
         """
+        # Save address to MAR
         self.mar = address
+
+        # Save data to MDR
         self.mdr = self.ram[self.mar]
 
         return self.mdr
@@ -124,9 +136,13 @@ class CPU:
         """
         Should accept a value to write, and the address to write to
         """
+        # Save address to MAR
         self.mar = address
+
+        # Save value to MDR
         self.mdr = value
 
+        # Save the value in MDR to the memory address stored in MAR
         self.ram[self.mar] = self.mdr
 
     def trace(self):
@@ -154,64 +170,104 @@ class CPU:
         print()
 
     def handle_hlt(self):
+        self.running = False
         sys.exit()
 
     def handle_ldi(self):
         register = self.ram_read(self.pc + 1)
-        # print("ldi register", register)
         value = self.ram_read(self.pc + 2)
+
         self.reg[register] = value
 
     def handle_prn(self):
         register = self.ram_read(self.pc + 1)
         print(self.reg[register])
 
-    def handle_push(self):
-        # print("before", self.reg, "sp", self.sp)
-        self.sp -= 1
-        # print("after", self.reg, "sp", self.sp)
-        register = self.ram_read(self.pc + 1)
-        value = self.reg[register]
-        # print("value", value, self.sp)
-        self.ram_write(self.sp, value)
-
     def handle_pop(self):
-        value = self.ram_read(self.sp)
-        # print("value", value)
+        # Get the value from address pointed to by the Stack Pointer
+        value = self.ram_read(self.reg[7])
+
+        # Get the register number to copy into
         register = self.ram_read(self.pc + 1)
+
+        # Copy the value into the register
         self.reg[register] = value
-        self.sp += 1
+
+        # Increment the Stack Pointer
+        self.reg[7] += 1
+
+    def handle_push(self):
+        # Decrement the Stack Pointer
+        self.reg[7] -= 1
+
+        # Get the register to retrieve the value from
+        register = self.ram_read(self.pc + 1)
+
+        # Get the value from the register
+        value = self.reg[register]
+
+        # Copy the value to the address pointed to by the SP
+        self.ram_write(self.reg[7], value)
+
+    def handle_call(self):
+        # Get the address of the instruction directly after CALL
+        return_address = self.pc + 2
+
+        # Push it onto the stack
+        ## Decrement the Stack Pointer
+        self.reg[7] -= 1
+
+        ## Store the return address at the top of the stack
+        self.ram_write(self.reg[7], return_address)
+
+        # Get the register to fetch from
+        register_num = self.ram_read(self.pc + 1)
+
+        # Grab the address stored in that register
+        address = self.reg[register_num]
+
+        # Set the PC to that address
+        self.pc = address
+
+    def handle_ret(self):
+        # Pop the address at the top of the stack
+
+        ## Get the address pointed to by the Stack Pointer
+        address = self.ram_read(self.reg[7])
+
+        ## Increment the Stack Pointer
+        self.reg[7] += 1
+
+        ## Point to PC to that address
+        self.pc = address
 
     def run(self):
         """Run the CPU."""
-        running = True
-
-        while running:
+        while self.running:
             # Get the current instruction
             instruction = self.ram_read(self.pc)
-            # print("self.pc, instruction", self.pc, instruction)
+
             # Store a copy of the current instruction in IR register
             self.ir = instruction
-            # print("self.ir", self.ir)
 
             # Get the number of operands
             num_operands = instruction >> 6
-            # print("num_operands", num_operands, instruction)
 
             # Store the bytes at PC+1 and PC+2
             operand_a = self.ram_read(self.pc + 1)
             operand_b = self.ram_read(self.pc + 2)
-            # print("operand_a, operand_b", operand_a, operand_b)
 
             # Check if it's an ALU instruction
             is_alu_operation = (instruction >> 5) & 0b1
-            # print(self.ram)
+
             if is_alu_operation:
                 self.alu(self.ir, operand_a, operand_b)
             else:
-                self.trace()
-                # print(self.branchtable[self.ir], "\n")
                 self.branchtable[self.ir]()
 
-            # Point the PC to the next instruction in memory
-            self.pc += num_operands + 1
+            # Check if this instruction  sets the PC directly
+            sets_pc = (instruction >> 4) & 0b0001
+
+            if not sets_pc:
+                # Point the PC to the next instruction in memory
+                self.pc += num_operands + 1
